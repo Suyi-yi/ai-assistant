@@ -1,0 +1,5 @@
+{
+  "version": "0.2.0",
+  "url": "https://github.com/Suyi-yi/ai-assistant/releases/download/v0.2.0/ai-assistant-v0.2.0.zip",
+  "notes": "首个公开版本。\n\n- 三种模式：聊天 / 计划（只读，只出方案）/ 天才程序员，同一个对话内切换\n- 记忆库工作台：读写笔记、检索、项目清单、可编辑的助手规则\n- 支持多个模型供应商（含中转站），内置技能库浏览\n- 内置「检查更新」，以后有新版本会自动提示"
+}

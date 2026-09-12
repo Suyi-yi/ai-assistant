@@ -69,6 +69,8 @@ $manifest = [ordered]@{
 $manifest | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath $manifestPath -Encoding UTF8
 
 $sizeMb = [math]::Round((Get-Item -LiteralPath $zip).Length / 1MB, 1)
+# 额外存一份纯英文名的副本：上传到 GitHub 时中文文件名会被搞坏
+Copy-Item -LiteralPath $zip -Destination (Join-Path $releaseRoot "ai-assistant-v$version.zip") -Force
 Write-Host ""
 Write-Host "发布包已生成：$zip（$sizeMb MB）" -ForegroundColor Green
 Write-Host "校验：$staging\data 是否存在 -> $(Test-Path -LiteralPath (Join-Path $staging 'data'))"
