@@ -9,9 +9,11 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import tempfile
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import requests
@@ -101,13 +103,66 @@ def _fetch_once(source: str, timeout: int = 20) -> dict:
         return {"ok": False, "error": "更新源返回的不是合法 JSON"}
 
 
+def expand_sources(source: str) -> list[str]:
+    """把用户填的更新源展开成多个可尝试地址。
+
+    GitHub 的 raw 地址在国内偶尔连不上，这里自动补两个 jsDelivr 镜像做兜底
+    （jsDelivr 会把公开仓库的内容镜像一份，不需要额外注册、不用改仓库）。
+    用户也可以自己填多个地址，用换行、逗号或空格分隔。
+    """
+    raw = (source or "").strip()
+    items = [item for item in re.split(r"[\s,;]+", raw) if item]
+    out: list[str] = []
+    for item in items:
+        out.append(item)
+        if item.lower().startswith("http"):
+            match = re.search(r"raw\.githubusercontent\.com/([\w.\-]+)/([\w.\-]+)/([\w.\-]+)/(.+)", item)
+            if match:
+                owner, repo, branch, path = match.groups()
+                out.append(f"https://cdn.jsdelivr.net/gh/{owner}/{repo}@{branch}/{path}")
+                out.append(f"https://fastly.jsdelivr.net/gh/{owner}/{repo}@{branch}/{path}")
+        else:
+            match = re.fullmatch(r"([\w.\-]+)/([\w.\-]+)", item)
+            if match:
+                owner, repo = match.groups()
+                out.append(f"https://cdn.jsdelivr.net/gh/{owner}/{repo}@master/releases/manifest.json")
+                out.append(f"https://fastly.jsdelivr.net/gh/{owner}/{repo}@master/releases/manifest.json")
+    seen: set[str] = set()
+    unique: list[str] = []
+    for item in out:
+        if item not in seen:
+            seen.add(item)
+            unique.append(item)
+    return unique
+
+
 def check_update(current: str, source: str) -> dict:
-    manifest = fetch_manifest(source)
-    if not manifest.get("ok"):
-        return manifest
-    manifest["current"] = current
-    manifest["has_update"] = is_newer(manifest["version"], current)
-    return manifest
+    """多个更新源并行试，谁先成功用谁。
+
+    顺序试会很慢（一个源超时要等十几秒才轮到下一个），并行之后即使是抽风的
+    镜像也不会拖慢整体检测。
+    """
+    candidates = expand_sources(source)
+    if not candidates:
+        return {"ok": False, "error": "还没填更新源"}
+    errors: list[str] = []
+    with ThreadPoolExecutor(max_workers=min(4, len(candidates))) as pool:
+        # 有多个源兜底，就不必在单条上死等：超时 8 秒、只试一次
+        futures = {pool.submit(fetch_manifest, item, 8, 1): item for item in candidates}
+        for future in as_completed(futures):
+            candidate = futures[future]
+            try:
+                manifest = future.result()
+            except Exception as exc:  # 线程里出任何问题都当这条源失败
+                errors.append(f"{candidate}: {exc}")
+                continue
+            if manifest.get("ok"):
+                manifest["current"] = current
+                manifest["has_update"] = is_newer(manifest["version"], current)
+                manifest["source_used"] = candidate
+                return manifest
+            errors.append(f"{candidate}: {manifest.get('error', '')}")
+    return {"ok": False, "error": errors[0] if errors else "所有更新源都不可用", "tried": candidates}
 
 
 def download_zip(url: str, timeout: int = 300) -> dict:
