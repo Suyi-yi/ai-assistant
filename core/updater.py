@@ -146,9 +146,12 @@ def check_update(current: str, source: str) -> dict:
     if not candidates:
         return {"ok": False, "error": "还没填更新源"}
     errors: list[str] = []
-    with ThreadPoolExecutor(max_workers=min(4, len(candidates))) as pool:
-        # 有多个源兜底，就不必在单条上死等：超时 8 秒、只试一次
-        futures = {pool.submit(fetch_manifest, item, 8, 1): item for item in candidates}
+    # 这里不能用 with：那会在退出时等所有任务跑完，等于退化成"按最慢的那个算"。
+    # 谁先成功就立刻取消剩下的，直接返回。
+    pool = ThreadPoolExecutor(max_workers=min(4, len(candidates)))
+    try:
+        # 有多个源兜底，就不必在单条上死等：超时 6 秒、只试一次
+        futures = {pool.submit(fetch_manifest, item, 6, 1): item for item in candidates}
         for future in as_completed(futures):
             candidate = futures[future]
             try:
@@ -160,8 +163,11 @@ def check_update(current: str, source: str) -> dict:
                 manifest["current"] = current
                 manifest["has_update"] = is_newer(manifest["version"], current)
                 manifest["source_used"] = candidate
+                pool.shutdown(wait=False, cancel_futures=True)
                 return manifest
             errors.append(f"{candidate}: {manifest.get('error', '')}")
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
     return {"ok": False, "error": errors[0] if errors else "所有更新源都不可用", "tried": candidates}
 
 
