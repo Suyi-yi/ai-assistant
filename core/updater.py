@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 import requests
@@ -32,7 +33,23 @@ def is_newer(latest: str, current: str) -> bool:
     return parse_version(latest) > parse_version(current)
 
 
-def fetch_manifest(source: str, timeout: int = 20) -> dict:
+def fetch_manifest(source: str, timeout: int = 20, retries: int = 3) -> dict:
+    """国内访问 raw.githubusercontent.com 偶尔会抽风，失败就退避重试几次。"""
+    last_error = ""
+    for attempt in range(max(1, retries)):
+        result = _fetch_once(source, timeout)
+        if result.get("ok"):
+            return result
+        last_error = result.get("error", "")
+        # 只有网络类错误才重试；404、内容不合法这类重试也没用
+        if "连不上" not in last_error:
+            return result
+        if attempt + 1 < retries:
+            time.sleep(1.5 * (attempt + 1))
+    return {"ok": False, "error": last_error}
+
+
+def _fetch_once(source: str, timeout: int = 20) -> dict:
     source = (source or "").strip()
     if not source:
         return {"ok": False, "error": "还没填更新源"}

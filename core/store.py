@@ -67,6 +67,8 @@ DEFAULT_CONFIG = {
     "recent_workspaces": [],
     "recent_memory_roots": [],
     "usage_total": {"input": 0, "output": 0, "cached": 0, "turns": 0},
+    "update_source": "",
+    "update_checked_at": 0,
 }
 
 DEFAULT_PROVIDER = {
