@@ -1,0 +1,5 @@
+pywebview>=6.0
+requests>=2.31
+markdown-it-py>=3.0
+Pygments>=2.16
+

@@ -1,0 +1,173 @@
+"""检测更新并就地覆盖安装。
+
+更新源支持两种写法：
+  1) 一个 JSON 地址（自己放 Gitee / 网盘 / 任意静态空间都行）：
+     {"version": "0.3.0", "url": "https://.../AI小助理-v0.3.0.zip", "notes": "改了什么"}
+  2) GitHub 仓库 owner/repo（读 Releases 最新版）
+"""
+
+from __future__ import annotations
+
+import json
+import subprocess
+import tempfile
+from pathlib import Path
+
+import requests
+
+CREATE_NO_WINDOW = 0x08000000
+
+
+def parse_version(text: str) -> tuple:
+    parts = []
+    for chunk in str(text or "").strip().lstrip("vV").split("."):
+        digits = "".join(ch for ch in chunk if ch.isdigit())
+        parts.append(int(digits) if digits else 0)
+    while len(parts) < 3:
+        parts.append(0)
+    return tuple(parts[:3])
+
+
+def is_newer(latest: str, current: str) -> bool:
+    return parse_version(latest) > parse_version(current)
+
+
+def fetch_manifest(source: str, timeout: int = 20) -> dict:
+    source = (source or "").strip()
+    if not source:
+        return {"ok": False, "error": "还没填更新源"}
+    try:
+        if "/" in source and not source.lower().startswith("http"):
+            owner, _, repo = source.partition("/")
+            response = requests.get(
+                f"https://api.github.com/repos/{owner.strip()}/{repo.strip()}/releases/latest",
+                timeout=timeout,
+                headers={"Accept": "application/vnd.github+json", "User-Agent": "ai-assistant-updater"},
+            )
+            if response.status_code == 404:
+                return {"ok": False, "error": "找不到这个仓库或还没有 Release"}
+            if response.status_code != 200:
+                return {"ok": False, "error": f"GitHub 返回 {response.status_code}"}
+            data = response.json()
+            assets = data.get("assets") or []
+            zip_url = ""
+            for asset in assets:
+                name = (asset.get("name") or "").lower()
+                if name.endswith(".zip"):
+                    zip_url = asset.get("browser_download_url") or ""
+                    break
+            if not zip_url:
+                return {"ok": False, "error": "最新 Release 里没有 zip 附件"}
+            return {
+                "ok": True,
+                "version": str(data.get("tag_name") or data.get("name") or "").lstrip("vV"),
+                "url": zip_url,
+                "notes": (data.get("body") or "")[:2000],
+                "page": data.get("html_url") or "",
+            }
+        response = requests.get(source, timeout=timeout, headers={"User-Agent": "ai-assistant-updater"})
+        if response.status_code != 200:
+            return {"ok": False, "error": f"更新源返回 {response.status_code}"}
+        data = response.json()
+        if not data.get("version") or not data.get("url"):
+            return {"ok": False, "error": "更新源 JSON 里缺少 version 或 url"}
+        return {
+            "ok": True,
+            "version": str(data["version"]),
+            "url": str(data["url"]),
+            "notes": str(data.get("notes") or "")[:2000],
+            "page": str(data.get("page") or ""),
+        }
+    except requests.RequestException as exc:
+        return {"ok": False, "error": f"连不上更新源：{exc}"}
+    except ValueError:
+        return {"ok": False, "error": "更新源返回的不是合法 JSON"}
+
+
+def check_update(current: str, source: str) -> dict:
+    manifest = fetch_manifest(source)
+    if not manifest.get("ok"):
+        return manifest
+    manifest["current"] = current
+    manifest["has_update"] = is_newer(manifest["version"], current)
+    return manifest
+
+
+def download_zip(url: str, timeout: int = 300) -> dict:
+    """把新版本 zip 下到临时目录（放在系统盘外，避免占 C 盘）。"""
+    try:
+        folder = Path(tempfile.mkdtemp(prefix="ai-assistant-update-"))
+        target = folder / "update.zip"
+        with requests.get(url, stream=True, timeout=timeout, headers={"User-Agent": "ai-assistant-updater"}) as response:
+            if response.status_code != 200:
+                return {"ok": False, "error": f"下载失败：HTTP {response.status_code}"}
+            total = 0
+            with target.open("wb") as handle:
+                for chunk in response.iter_content(chunk_size=262144):
+                    if chunk:
+                        handle.write(chunk)
+                        total += len(chunk)
+        if total < 1024:
+            return {"ok": False, "error": "下载下来的文件太小，可能不是安装包"}
+        return {"ok": True, "path": str(target), "bytes": total}
+    except requests.RequestException as exc:
+        return {"ok": False, "error": f"下载失败：{exc}"}
+    except OSError as exc:
+        return {"ok": False, "error": f"写临时文件失败：{exc}"}
+
+
+UPDATER_SCRIPT = """param(
+  [int]$WaitPid,
+  [string]$Zip,
+  [string]$TargetDir,
+  [string]$ExePath
+)
+$ErrorActionPreference = 'Stop'
+try { Wait-Process -Id $WaitPid -Timeout 180 -ErrorAction SilentlyContinue } catch {}
+Start-Sleep -Milliseconds 1200
+Expand-Archive -LiteralPath $Zip -DestinationPath $TargetDir -Force
+Start-Sleep -Milliseconds 500
+Start-Process -FilePath $ExePath
+"""
+
+
+def apply_update(zip_path: str, target_dir: str, exe_path: str, wait_pid: int) -> dict:
+    """写一个一次性脚本：等本程序退出 → 解压覆盖 → 重新打开。
+
+    只覆盖程序文件；data/ 不在更新包里，所以设置、密钥、聊天记录、备份都不会被动。
+    """
+    zip_file = Path(zip_path)
+    target = Path(target_dir)
+    exe = Path(exe_path)
+    if not zip_file.is_file():
+        return {"ok": False, "error": "更新包不见了，请重新下载"}
+    if not target.is_dir():
+        return {"ok": False, "error": f"安装目录不存在：{target}"}
+    if not exe.is_file():
+        return {"ok": False, "error": f"找不到主程序：{exe}"}
+    script = Path(tempfile.mkdtemp(prefix="ai-assistant-apply-")) / "apply.ps1"
+    script.write_text(UPDATER_SCRIPT, encoding="utf-8-sig")
+    try:
+        subprocess.Popen(
+            [
+                "powershell",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                str(script),
+                "-WaitPid",
+                str(wait_pid),
+                "-Zip",
+                str(zip_file),
+                "-TargetDir",
+                str(target),
+                "-ExePath",
+                str(exe),
+            ],
+            creationflags=CREATE_NO_WINDOW,
+            close_fds=True,
+        )
+    except OSError as exc:
+        return {"ok": False, "error": f"启动更新脚本失败：{exc}"}
+    return {"ok": True, "script": str(script)}

@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>AI 小助理</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="aurora"></div>
+<div class="grid-bg"></div>
+
+<div id="app">
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true">
+        <svg viewBox="0 0 32 32" width="20" height="20">
+          <defs>
+            <linearGradient id="logoGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#a855f7"/>
+              <stop offset="1" stop-color="#ec4899"/>
+            </linearGradient>
+          </defs>
+          <polygon points="16,3.2 19.8,12.2 28.8,16 19.8,19.8 16,28.8 12.2,19.8 3.2,16 12.2,12.2"
+                   fill="url(#logoGrad)"/>
+          <polygon points="26,1.4 27.4,4.6 30.6,6 27.4,7.4 26,10.6 24.6,7.4 21.4,6 24.6,4.6"
+                   fill="url(#logoGrad)" opacity=".85"/>
+        </svg>
+      </span>
+      <span id="assistantName" class="brand-name">小助理</span>
+      <span class="brand-sub">personal assistant</span>
+    </div>
+    <div class="topmeta">
+      <button class="chip chip-btn hidden" id="updateChip" title="有新版本可用">⬆ 有新版本</button>
+      <span class="chip" id="modelChip">deepseek-chat</span>
+      <button class="chip chip-btn" id="memoryChip" title="点击在资源管理器中打开">记忆库</button>
+    </div>
+    <div class="topactions">
+      <button class="btn ghost" id="settingsBtn">设置</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <aside class="sidebar">
+      <div class="tabs">
+        <button class="tab active" data-tab="sessions">会话</button>
+        <button class="tab" data-tab="projects">项目</button>
+        <button class="tab" data-tab="memory">记忆库</button>
+        <button class="tab" data-tab="skills">技能</button>
+      </div>
+
+      <div class="pane" id="paneSessions">
+        <button class="btn primary block" id="newSessionBtn">＋ 新对话</button>
+        <div class="list" id="sessionList"></div>
+      </div>
+
+      <div class="pane hidden" id="paneProjects">
+        <button class="btn primary block" id="newProjectBtn">＋ 新建项目</button>
+        <div class="list" id="projectList"></div>
+      </div>
+
+      <div class="pane hidden" id="paneMemory">
+        <div class="search-row">
+          <input id="searchInput" class="input" placeholder="搜索笔记、标签、正文…">
+        </div>
+        <div class="memory-actions">
+          <button class="btn tiny ghost" id="askMemoryBtn" title="按当前搜索词检索笔记并提问">AI 检索问我</button>
+          <button class="btn tiny ghost" id="newNoteBtn">新建笔记</button>
+        </div>
+        <div class="list" id="memoTree"></div>
+      </div>
+
+      <div class="pane hidden" id="paneSkills">
+        <div class="search-row">
+          <input id="skillSearch" class="input" placeholder="搜技能名或说明…">
+        </div>
+        <div class="memory-actions">
+          <button class="btn tiny ghost" id="skillReloadBtn">重新扫描</button>
+          <span class="chip" id="skillCount">—</span>
+        </div>
+        <div class="list" id="skillList"></div>
+      </div>
+    </aside>
+
+    <section class="chat">
+      <div class="modebar" id="modeBar">
+        <div class="mode-switch">
+          <button class="mode-btn active" id="modeChatBtn" data-mode="chat">💬 聊天</button>
+          <button class="mode-btn" id="modePlanBtn" data-mode="plan">📋 计划</button>
+          <button class="mode-btn" id="modeProgBtn" data-mode="prog">⌨ 天才程序员</button>
+        </div>
+        <div class="prog-tools hidden" id="progTools">
+          <button class="chip chip-btn" id="progWorkspaceBtn" title="点击切换工作目录">未选目录</button>
+          <select class="input mini" id="progSandbox" title="权限档位"></select>
+          <span class="chip hidden" id="planBadge" title="计划模式强制只读，不会修改任何文件">🔒 只读（只出方案）</span>
+          <span class="chip" id="progUsageChip" title="上一轮用量">—</span>
+          <button class="btn tiny danger" id="progStopBtn">停止</button>
+        </div>
+      </div>
+      <div class="messages" id="messages"></div>
+      <div class="skill-chips hidden" id="skillChips"></div>
+      <div class="composer">
+        <button class="btn ghost attach" id="attachBtn" title="打开后，这一轮一定会带上记忆库里的笔记">📎 记忆库</button>
+        <textarea id="input" class="input textarea" rows="1" placeholder="说点什么…（Enter 发送，Shift+Enter 换行）"></textarea>
+        <button class="btn primary send" id="sendBtn" title="发送">➤</button>
+      </div>
+    </section>
+
+    <aside class="context" id="contextPanel">
+      <div class="context-head">
+        <span>对话上下文</span>
+        <button class="btn tiny ghost" id="toggleContextBtn">收起</button>
+      </div>
+      <div class="context-body">
+        <div class="context-label">心情</div>
+        <div class="mood-box" id="moodBox">
+          <span class="mood-emoji" id="moodEmoji">🙂</span>
+          <span class="mood-label" id="moodLabel">平静</span>
+        </div>
+        <div class="context-label">引用的笔记</div>
+        <div id="refsList" class="refs"></div>
+        <div class="context-label">记忆库</div>
+        <div id="memoryStats" class="stats"></div>
+      </div>
+    </aside>
+  </main>
+
+  <div class="statusbar" id="usageBar">
+    <span class="sb-item" id="sbLast">本轮 —</span>
+    <span class="sb-sep">|</span>
+    <span class="sb-item" id="sbSession">本会话 —</span>
+    <span class="sb-sep">|</span>
+    <span class="sb-item" id="sbTotal">累计 —</span>
+    <span class="flex-spacer"></span>
+    <span class="sb-item sb-cost" id="sbCost" title="按 DeepSeek Flash 现价估算，其他供应商可能不同"></span>
+  </div>
+</div>
+
+<div class="overlay hidden" id="settingsOverlay">
+  <div class="dialog">
+    <div class="dialog-head"><h2>设置</h2><button class="btn tiny ghost" data-close="settingsOverlay">✕</button></div>
+    <div class="dialog-body">
+      <label class="field"><span>助手名字</span><input class="input" id="cfgName"></label>
+      <label class="field"><span>性格预设（选一个会覆盖下面的人设文本）</span><select class="input" id="cfgPreset"></select></label>
+      <label class="field"><span>人设</span><textarea class="input textarea" id="cfgPersona" rows="3"></textarea></label>
+      <label class="field"><span>记忆库根目录</span><input class="input" id="cfgMemory"></label>
+      <label class="field">
+        <span>DeepSeek API Key</span>
+        <input class="input" id="cfgKey" type="password" placeholder="sk-…">
+        <small id="keyStatus" class="hint"></small>
+      </label>
+      <div class="row">
+        <label class="field"><span>模型</span><input class="input" id="cfgModel"></label>
+        <label class="field"><span>温度</span><input class="input" id="cfgTemp" type="number" step="0.1" min="0" max="2"></label>
+      </div>
+      <div class="row">
+        <label class="field"><span>自动检索笔记数</span><input class="input" id="cfgMaxNotes" type="number" min="0" max="10"></label>
+        <label class="field"><span>接口地址</span><input class="input" id="cfgBase"></label>
+      </div>
+      <label class="field"><span>codex.exe 路径（程序员模式用，留空自动查找）</span><input class="input" id="cfgCodex"></label>
+      <label class="field">
+        <span>更新源（填 GitHub 仓库 owner/repo，或一个 JSON 地址；留空不检查更新）</span>
+        <div class="row">
+          <input class="input" id="cfgUpdateSource" placeholder="例如 yourname/ai-assistant">
+          <button class="btn ghost" id="checkUpdateBtn">立即检查</button>
+        </div>
+      </label>
+      <div class="row">
+        <button class="btn ghost" id="openRulesBtn">助手规则…</button>
+        <button class="btn ghost" id="openProvidersBtn">模型供应商…</button>
+      </div>
+    </div>
+    <div class="dialog-foot">
+      <button class="btn ghost" id="importKeyBtn">从 Codex 导入 Key</button>
+      <span class="flex-spacer"></span>
+      <button class="btn ghost" data-close="settingsOverlay">取消</button>
+      <button class="btn primary" id="saveSettingsBtn">保存</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="noteOverlay">
+  <div class="dialog wide">
+    <div class="dialog-head">
+      <h2 id="noteTitle">笔记</h2>
+      <div class="note-head-actions">
+        <button class="btn tiny ghost" id="noteRefBtn">加入对话参考</button>
+        <button class="btn tiny ghost" id="noteEditBtn">编辑</button>
+        <button class="btn tiny danger" id="noteDeleteBtn">删除</button>
+        <button class="btn tiny ghost" data-close="noteOverlay">✕</button>
+      </div>
+    </div>
+    <div class="dialog-body">
+      <div id="noteView" class="note-view md"></div>
+      <div id="noteEdit" class="hidden">
+        <textarea class="input textarea code-area" id="noteEditor" spellcheck="false"></textarea>
+        <div class="note-save-row">
+          <button class="btn primary" id="noteSaveBtn">保存</button>
+          <button class="btn ghost" id="noteCancelBtn">取消编辑</button>
+          <small class="hint" id="noteHint"></small>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="newNoteOverlay">
+  <div class="dialog">
+    <div class="dialog-head"><h2>新建笔记</h2><button class="btn tiny ghost" data-close="newNoteOverlay">✕</button></div>
+    <div class="dialog-body">
+      <div class="row">
+        <label class="field"><span>放到哪个目录</span><select class="input" id="newNoteDir"></select></label>
+        <label class="field"><span>标题</span><input class="input" id="newNoteTitle" placeholder="例如 桌面助手的技术选型"></label>
+      </div>
+      <div class="field" id="kindField">
+        <span>复盘类型（仅复盘目录需要）</span>
+        <select class="input" id="newNoteKind">
+          <option value="日复盘">日复盘</option>
+          <option value="周复盘">周复盘</option>
+          <option value="月复盘">月复盘</option>
+          <option value="项目复盘">项目复盘</option>
+        </select>
+      </div>
+      <div class="field"><span>标签（可多选）</span><div id="tagPicker" class="tag-picker"></div></div>
+      <label class="field"><span>正文</span><textarea class="input textarea" id="newNoteContent" rows="6" placeholder="正文不用写 frontmatter，会自动补"></textarea></label>
+      <small class="hint" id="newNoteHint"></small>
+    </div>
+    <div class="dialog-foot">
+      <span class="flex-spacer"></span>
+      <button class="btn ghost" data-close="newNoteOverlay">取消</button>
+      <button class="btn primary" id="createNoteBtn">创建</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="confirmOverlay">
+  <div class="dialog compact">
+    <div class="dialog-head"><h2 id="confirmTitle">确认</h2></div>
+    <div class="dialog-body"><div id="confirmBody" class="confirm-body"></div></div>
+    <div class="dialog-foot">
+      <span class="flex-spacer"></span>
+      <button class="btn ghost" id="confirmNo">取消</button>
+      <button class="btn primary" id="confirmYes">确定</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="setupOverlay">
+  <div class="dialog">
+    <div class="dialog-head">
+      <h2>先做个开场设置</h2>
+      <button class="btn tiny ghost" data-close="setupOverlay">✕</button>
+    </div>
+    <div class="dialog-body">
+      <p class="hint">这些只存在你自己电脑上，不会跟着程序包传给任何人。</p>
+      <label class="field"><span>给她起个名字</span><input class="input" id="setupName" placeholder="小助理"></label>
+      <label class="field">
+        <span>记忆库目录（笔记放在哪）</span>
+        <input class="input" id="setupMemory" placeholder="例如 D:\\我的记忆库">
+        <div class="row" style="margin-top:8px">
+          <button class="btn tiny ghost" id="setupBrowseBtn">浏览文件夹…</button>
+          <button class="btn tiny ghost" id="setupCreateBankBtn">不用选，帮我建一个空的</button>
+        </div>
+        <label class="row check-row" id="setupCreateRow">
+          <input type="checkbox" id="setupCreate">
+          <span>这个目录还不存在 / 是空的，按标准目录帮我初始化</span>
+        </label>
+      </label>
+      <label class="field">
+        <span>DeepSeek API Key（你自己的）</span>
+        <input class="input" id="setupKey" type="password" placeholder="sk-…">
+        <small class="hint">去 platform.deepseek.com 注册，创建 API Key，粘进来就行。</small>
+      </label>
+      <small class="hint" id="setupHint"></small>
+    </div>
+    <div class="dialog-foot">
+      <span class="flex-spacer"></span>
+      <button class="btn primary" id="setupFinishBtn">开始使用</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="skillOverlay">
+  <div class="dialog wide">
+    <div class="dialog-head">
+      <h2 id="skillTitle">技能</h2>
+      <div class="note-head-actions">
+        <button class="btn tiny ghost" id="skillUseBtn">使用这个技能</button>
+        <button class="btn tiny ghost" id="skillOpenDirBtn">打开目录</button>
+        <button class="btn tiny ghost" data-close="skillOverlay">✕</button>
+      </div>
+    </div>
+    <div class="dialog-body">
+      <div class="skill-meta" id="skillMeta"></div>
+      <div class="note-view md" id="skillView"></div>
+    </div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="memoryOverlay">
+  <div class="dialog">
+    <div class="dialog-head"><h2>切换记忆库</h2><button class="btn tiny ghost" data-close="memoryOverlay">✕</button></div>
+    <div class="dialog-body">
+      <div class="skill-meta" id="memoryCurrent"></div>
+      <label class="field">
+        <div class="row">
+          <input class="input" id="memoryPathInput" placeholder="例如 D:\\我的记忆库">
+          <button class="btn ghost" id="memoryBrowseBtn">浏览…</button>
+        </div>
+        <label class="row check-row">
+          <input type="checkbox" id="memoryCreateCheck">
+          <span>这个目录是空的 / 还不存在，按标准目录帮我初始化</span>
+        </label>
+      </label>
+      <div class="context-label">最近用过</div>
+      <div id="memoryRecentList" class="refs"></div>
+      <small class="hint" id="memoryHint"></small>
+    </div>
+    <div class="dialog-foot">
+      <span class="flex-spacer"></span>
+      <button class="btn ghost" data-close="memoryOverlay">取消</button>
+      <button class="btn primary" id="memorySwitchBtn">切换过去</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="rulesOverlay">
+  <div class="dialog wide">
+    <div class="dialog-head">
+      <h2>助手规则</h2>
+      <div class="note-head-actions">
+        <button class="btn tiny ghost" id="rulesResetBtn">恢复默认模板</button>
+        <button class="btn tiny ghost" data-close="rulesOverlay">✕</button>
+      </div>
+    </div>
+    <div class="dialog-body">
+      <p class="hint" id="rulesHint"></p>
+      <textarea class="input textarea code-area" id="rulesEditor" spellcheck="false"></textarea>
+    </div>
+    <div class="dialog-foot">
+      <span class="flex-spacer"></span>
+      <button class="btn ghost" data-close="rulesOverlay">取消</button>
+      <button class="btn primary" id="rulesSaveBtn">保存</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="providerOverlay">
+  <div class="dialog wide">
+    <div class="dialog-head"><h2>模型供应商</h2><button class="btn tiny ghost" data-close="providerOverlay">✕</button></div>
+    <div class="dialog-body">
+      <div id="providerList" class="provider-list"></div>
+      <div class="context-label">添加 / 编辑</div>
+      <div class="row">
+        <label class="field"><span>预设</span><select class="input" id="providerPreset"></select></label>
+        <label class="field"><span>显示名</span><input class="input" id="providerName" placeholder="例如 我的中转站"></label>
+      </div>
+      <label class="field"><span>接口地址（OpenAI 兼容）</span><input class="input" id="providerBase" placeholder="https://…/v1"></label>
+      <label class="field"><span>API Key</span><input class="input" id="providerKey" type="password" placeholder="留空表示不改"></label>
+      <div class="row">
+        <label class="field"><span>模型</span><input class="input" id="providerModel" placeholder="deepseek-chat"></label>
+        <label class="field" style="max-width:150px">
+          <span>&nbsp;</span>
+          <button class="btn ghost" id="providerModelsBtn">拉取模型列表</button>
+        </label>
+      </div>
+      <div id="providerModelList" class="tag-picker"></div>
+      <small class="hint" id="providerHint"></small>
+    </div>
+    <div class="dialog-foot">
+      <button class="btn ghost" id="providerNewBtn">新建</button>
+      <button class="btn ghost" id="providerTestBtn">测连通</button>
+      <button class="btn ghost" id="providerDeleteBtn">删除</button>
+      <span class="flex-spacer"></span>
+      <button class="btn primary" id="providerSaveBtn">保存</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="projectOverlay">
+  <div class="dialog">
+    <div class="dialog-head"><h2>新建项目</h2><button class="btn tiny ghost" data-close="projectOverlay">✕</button></div>
+    <div class="dialog-body">
+      <p class="hint">项目会记进你的记忆库 <b>01-项目/</b>，工作目录写在项目笔记的 frontmatter 里，换机器也带着走。</p>
+      <label class="field"><span>项目名</span><input class="input" id="projectName" placeholder="例如 我的新网站"></label>
+      <label class="field">
+        <span>工作目录（天才程序员模式在这个目录里干活）</span>
+        <div class="row">
+          <input class="input" id="projectPath" placeholder="D:\\...">
+          <button class="btn ghost" id="projectBrowseBtn">浏览…</button>
+        </div>
+        <label class="row check-row">
+          <input type="checkbox" id="projectCreateDir">
+          <span>目录还不存在，帮我建一个</span>
+        </label>
+      </label>
+      <small class="hint" id="projectHint"></small>
+    </div>
+    <div class="dialog-foot">
+      <span class="flex-spacer"></span>
+      <button class="btn ghost" data-close="projectOverlay">取消</button>
+      <button class="btn primary" id="projectCreateBtn">创建</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="updateOverlay">
+  <div class="dialog">
+    <div class="dialog-head"><h2 id="updateTitle">发现新版本</h2><button class="btn tiny ghost" data-close="updateOverlay">✕</button></div>
+    <div class="dialog-body">
+      <div class="skill-meta" id="updateMeta"></div>
+      <div class="context-label">这一版改了什么</div>
+      <div class="note-view md" id="updateNotes"></div>
+      <small class="hint">更新只会覆盖程序文件。你的设置、密钥、聊天记录、备份都在 data 目录里，不会被动。</small>
+    </div>
+    <div class="dialog-foot">
+      <span class="flex-spacer"></span>
+      <button class="btn ghost" data-close="updateOverlay">以后再说</button>
+      <button class="btn primary" id="updateApplyBtn">下载并更新</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="app.js"></script>
+<script src="app2.js"></script>
+</body>
+</html>
